@@ -1,14 +1,15 @@
 package cmd
 
 import (
-	"burnmail/api"
-	"burnmail/storage"
 	"context"
 	"fmt"
 	"time"
 
 	"github.com/atotto/clipboard"
 	"github.com/spf13/cobra"
+
+	"burnmail/api"
+	"burnmail/storage"
 )
 
 func generateEmail(_ *cobra.Command, _ []string) {

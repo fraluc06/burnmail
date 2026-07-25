@@ -1,13 +1,14 @@
 package cmd
 
 import (
-	"burnmail/api"
 	"context"
 	"fmt"
 	"strings"
 
 	"github.com/manifoldco/promptui"
 	"github.com/spf13/cobra"
+
+	"burnmail/api"
 )
 
 func viewMessages(_ *cobra.Command, _ []string) {

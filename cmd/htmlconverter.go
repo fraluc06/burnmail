@@ -86,7 +86,11 @@ func (c *htmlConverter) handleElement(n *html.Node) {
 		text := c.extractText(n)
 		href := c.getAttr(n, "href")
 		if href != "" {
-			c.buf.WriteString("[" + text + "](" + href + ")")
+			c.buf.WriteString("[")
+			c.buf.WriteString(text)
+			c.buf.WriteString("](")
+			c.buf.WriteString(href)
+			c.buf.WriteString(")")
 		} else {
 			c.buf.WriteString(text)
 		}

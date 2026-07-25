@@ -1,8 +1,6 @@
 package cmd
 
 import (
-	"burnmail/api"
-	"burnmail/storage"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -10,6 +8,9 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+
+	"burnmail/api"
+	"burnmail/storage"
 )
 
 type ExportData struct {

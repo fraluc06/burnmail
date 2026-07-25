@@ -1,8 +1,6 @@
 package cmd
 
 import (
-	"burnmail/api"
-	"burnmail/storage"
 	"context"
 	"crypto/rand"
 	"fmt"
@@ -12,6 +10,9 @@ import (
 	"runtime"
 	"strings"
 	"time"
+
+	"burnmail/api"
+	"burnmail/storage"
 )
 
 // loadAccountOrExit loads account data or exits with error message
