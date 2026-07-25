@@ -1,0 +1,26 @@
+# VCS / IDE
+.git
+.gitignore
+.github
+.idea
+.DS_Store
+
+# Docs & local tooling (not needed to build the binary)
+*.md
+mise.toml
+droast.toml
+Dockerfile
+docker-compose.yml
+Makefile
+build.sh
+build.ps1
+completions/
+
+# Local build artifacts
+burnmail
+*.exe
+*.test
+*.out
+
+# Secrets
+.env

@@ -1,0 +1,6 @@
+# droast project config — burnmail is a one-shot CLI batch tool, not a service:
+#   DF012 (HEALTHCHECK) — the container exits after each run, nothing to probe
+#   DF022 (EXPOSE)      — the app listens on no ports
+#   DF061 (--platform)  — intentional: cross-builds the multi-arch GHCR image
+skip = ["DF012", "DF022", "DF061"]
+no-roast = true

@@ -1,0 +1,36 @@
+# burnmail is a one-shot CLI, not a daemon — build once, then invoke it with
+# `docker compose run` (or plain docker: docker run --rm -it -v burnmail_burnmail-home:/home/burnmail burnmail:local ...):
+#
+#   # Build the image:
+#   docker compose build
+#
+#   # Generate a new disposable address:
+#   docker compose run --rm burnmail g
+#
+#   # Open the inbox TUI:
+#   docker compose run --rm burnmail m
+#
+#   # Interactive shell inside the container:
+#   docker compose run --rm --entrypoint /bin/sh burnmail
+
+services:
+  burnmail:
+    build:
+      context: .
+      args:
+        VERSION: ${VERSION:-dev} # baked into the binary via -ldflags
+    image: burnmail:local
+    working_dir: /home/burnmail
+
+    # Persists ~/.burnmail.json (account) and ~/.burnmail-cache.json (cache)
+    # across one-shot runs, so the same inbox is reused every time.
+    volumes:
+      - burnmail-home:/home/burnmail
+
+    # Required for the BubbleTea TUI: without an allocated terminal, keys like
+    # 'q' / ctrl+c never reach the app and colors are stripped.
+    tty: true
+    stdin_open: true
+
+volumes:
+  burnmail-home:
