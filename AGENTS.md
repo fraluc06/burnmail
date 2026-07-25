@@ -8,6 +8,11 @@
 - Format: `gofmt -s -w .`
 - Lint: `go vet ./...`
 
+## Release Process
+- Tag-driven: `git tag vX.Y.Z && git push origin vX.Y.Z` triggers `.github/workflows/release.yml`
+- The tag is the single source of truth for the version; it is injected via `-ldflags -X main.Version=...` (main.go stays at "dev")
+- The workflow tests, cross-builds 5 platforms, creates the GitHub Release with changelog + checksums, and pushes the multi-arch image to GHCR
+
 ## Code Style
 - **Imports**: Group standard library, then third-party, then local packages (e.g., `burnmail/api`, `burnmail/cmd`, `burnmail/storage`)
 - **Formatting**: Use `gofmt` for all Go files; tabs for indentation
