@@ -1,8 +1,6 @@
 package cmd
 
 import (
-	"burnmail/api"
-	"burnmail/storage"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -19,6 +17,9 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/atotto/clipboard"
+
+	"burnmail/api"
+	"burnmail/storage"
 )
 
 type view int
@@ -85,6 +86,7 @@ type messageDeletedMsg struct{}
 type bulkDeletedMsg struct{}
 type errMsg error
 type tickMsg time.Time
+type retryLoadMsg struct{}
 
 var (
 	baseStyle = lipgloss.NewStyle().
@@ -301,6 +303,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case messagesLoadedMsg:
 		m.messages = msg
 		m.loading = false
+		m.err = nil
 		m.retryCount = 0
 		m.lastUpdate = time.Now()
 		saveCache(m.messages)
@@ -370,13 +373,18 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		if m.retryCount < 3 {
 			m.statusMessage = fmt.Sprintf("Error (retry %d/3): %v", m.retryCount, msg)
-			time.Sleep(time.Second * time.Duration(m.retryCount))
-			return m, loadMessages(m.client)
+			// Schedule the retry instead of sleeping: Update must never block the UI.
+			delay := time.Second * time.Duration(m.retryCount)
+			return m, tea.Tick(delay, func(time.Time) tea.Msg { return retryLoadMsg{} })
 		}
 
 		m.err = msg
 		m.statusMessage = fmt.Sprintf("Error after 3 retries: %v", msg)
 		return m, nil
+
+	case retryLoadMsg:
+		m.loading = true
+		return m, loadMessages(m.client)
 
 	case tea.BackgroundColorMsg:
 		m.isDark = msg.IsDark()
@@ -537,6 +545,30 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				m.statusMessage = fmt.Sprintf("Downloading %d attachments...", len(m.selectedMsg.Attachments))
 			}
+
+		case "q", "Q":
+			return m.showConfirm("quit", "quit Burnmail?")
+
+		case "?":
+			if m.currentView == listView || m.currentView == detailView {
+				m.previousView = m.currentView
+				m.currentView = helpView
+				return m, nil
+			}
+
+		case "r", "R":
+			if m.currentView == listView {
+				m.loading = true
+				m.statusMessage = "Refreshing..."
+				return m, loadMessages(m.client)
+			}
+
+		case "esc":
+			if m.currentView == detailView {
+				m.currentView = listView
+				m.selectedMsg = nil
+				return m, nil
+			}
 		}
 	}
 
@@ -555,9 +587,16 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m *model) View() tea.View {
 	var content string
 	if m.loading {
-		content = titleStyle.Render(fmt.Sprintf("%s Loading...", m.spinner.View())) + "\n"
+		var lb strings.Builder
+		lb.WriteString(titleStyle.Render(fmt.Sprintf("%s Loading...", m.spinner.View())))
+		lb.WriteString("\n")
+		content = lb.String()
 	} else if m.err != nil {
-		content = titleStyle.Render("Error: ") + m.err.Error() + "\n"
+		var eb strings.Builder
+		eb.WriteString(titleStyle.Render("Error: "))
+		eb.WriteString(m.err.Error())
+		eb.WriteString("\n")
+		content = eb.String()
 	} else {
 		var s strings.Builder
 
@@ -568,10 +607,12 @@ func (m *model) View() tea.View {
 				msgWord = "message"
 			}
 			title := fmt.Sprintf("Burnmail - %s (%d %s)", m.accountData.Address, msgCount, msgWord)
-			s.WriteString(titleStyle.Render(title) + "\n")
+			s.WriteString(titleStyle.Render(title))
+			s.WriteString("\n")
 
 			if m.statusMessage != "" {
-				s.WriteString(statusStyle.Render("▸ "+m.statusMessage) + "\n")
+				s.WriteString(statusStyle.Render(fmt.Sprintf("▸ %s", m.statusMessage)))
+				s.WriteString("\n")
 			}
 			s.WriteString("\n")
 		}
@@ -589,32 +630,75 @@ func (m *model) View() tea.View {
 				tableStyle = baseStyleFocused
 			}
 
-			s.WriteString(searchBox + "\n\n")
-			s.WriteString(tableStyle.Render(m.table.View()) + "\n\n")
+			s.WriteString(searchBox)
+			s.WriteString("\n\n")
+			s.WriteString(tableStyle.Render(m.table.View()))
+			s.WriteString("\n\n")
 
 			sortNames := []string{"Date", "Sender", "Subject"}
 			sortInfo := fmt.Sprintf("Sort: %s", sortNames[m.sortBy])
-			s.WriteString(helpStyle.Render(sortInfo) + " ")
-			s.WriteString(helpStyle.Render("• Press "+keyStyle.Render("?")+" for help") + "\n")
+			s.WriteString(helpStyle.Render(sortInfo))
+			s.WriteString(" ")
+			var hpb strings.Builder
+			hpb.WriteString("• Press ")
+			hpb.WriteString(keyStyle.Render("?"))
+			hpb.WriteString(" for help")
+			s.WriteString(helpStyle.Render(hpb.String()))
+			s.WriteString("\n")
 
-			helpText := keyStyle.Render("↑/↓") + "/" + keyStyle.Render("j/k") + ":navigate " + keyStyle.Render("enter") + ":open " + keyStyle.Render("s") + ":sort " + keyStyle.Render("c") + ":copy " + keyStyle.Render("v") + ":bulk " + keyStyle.Render("r") + ":refresh " + keyStyle.Render("/") + ":search "
+			var hb strings.Builder
+			hb.WriteString(keyStyle.Render("↑/↓"))
+			hb.WriteString("/")
+			hb.WriteString(keyStyle.Render("j/k"))
+			hb.WriteString(":navigate ")
+			hb.WriteString(keyStyle.Render("enter"))
+			hb.WriteString(":open ")
+			hb.WriteString(keyStyle.Render("s"))
+			hb.WriteString(":sort ")
+			hb.WriteString(keyStyle.Render("c"))
+			hb.WriteString(":copy ")
+			hb.WriteString(keyStyle.Render("v"))
+			hb.WriteString(":bulk ")
+			hb.WriteString(keyStyle.Render("r"))
+			hb.WriteString(":refresh ")
+			hb.WriteString(keyStyle.Render("/"))
+			hb.WriteString(":search ")
+			hb.WriteString(keyStyle.Render("a"))
+			hb.WriteString(":auto:")
 			if m.autoRefresh {
-				helpText += keyStyle.Render("a") + ":auto:" + keyStyle.Render("ON")
+				hb.WriteString(keyStyle.Render("ON"))
 			} else {
-				helpText += keyStyle.Render("a") + ":auto:" + keyStyle.Render("OFF")
+				hb.WriteString(keyStyle.Render("OFF"))
 			}
 			if m.bulkMode {
-				helpText += " " + keyStyle.Render("space") + ":select " + keyStyle.Render("d") + ":delete"
+				hb.WriteString(" ")
+				hb.WriteString(keyStyle.Render("space"))
+				hb.WriteString(":select ")
+				hb.WriteString(keyStyle.Render("d"))
+				hb.WriteString(":delete")
 			}
-			helpText += " " + keyStyle.Render("q") + ":quit"
-			s.WriteString(helpStyle.Render(helpText))
+			hb.WriteString(" ")
+			hb.WriteString(keyStyle.Render("q"))
+			hb.WriteString(":quit")
+			s.WriteString(helpStyle.Render(hb.String()))
 		case helpView:
 			s.WriteString(renderHelpScreen(m.width, m.height))
 		case confirmView:
 			s.WriteString(renderConfirmDialog(m.confirmData.(string)))
 		default:
-			s.WriteString(baseStyle.Render(m.viewport.View()) + "\n")
-			s.WriteString(helpStyle.Render("↑/↓ • " + keyStyle.Render("o") + ":browser • " + keyStyle.Render("c") + ":copy • " + keyStyle.Render("d") + ":delete • esc • " + keyStyle.Render("?") + ":help"))
+			s.WriteString(baseStyle.Render(m.viewport.View()))
+			s.WriteString("\n")
+			var dhb strings.Builder
+			dhb.WriteString("↑/↓ • ")
+			dhb.WriteString(keyStyle.Render("o"))
+			dhb.WriteString(":browser • ")
+			dhb.WriteString(keyStyle.Render("c"))
+			dhb.WriteString(":copy • ")
+			dhb.WriteString(keyStyle.Render("d"))
+			dhb.WriteString(":delete • esc • ")
+			dhb.WriteString(keyStyle.Render("?"))
+			dhb.WriteString(":help")
+			s.WriteString(helpStyle.Render(dhb.String()))
 		}
 
 		content = s.String()
@@ -801,7 +885,10 @@ func truncate(s string, max int) string {
 	}
 
 	if result.Len() == 0 {
-		return s[:max-len(ellipsis)] + ellipsis
+		var eb strings.Builder
+		eb.WriteString(s[:max-len(ellipsis)])
+		eb.WriteString(ellipsis)
+		return eb.String()
 	}
 
 	result.WriteString(ellipsis)
@@ -889,10 +976,17 @@ func (m *model) executeConfirmedAction() (tea.Model, tea.Cmd) {
 
 func (m *model) renderMessageDetail(msg *api.MessageDetail) string {
 	var content strings.Builder
-	content.WriteString(headerStyle.Render("From: ") + msg.From.Address + "\n")
-	content.WriteString(headerStyle.Render("Subject: ") + msg.Subject + "\n")
-	content.WriteString(headerStyle.Render("Date: ") + msg.CreatedAt.Format("02/01/2006 15:04:05") + "\n")
-	content.WriteString(separatorStyle.Render(strings.Repeat("─", 80)) + "\n\n")
+	content.WriteString(headerStyle.Render("From: "))
+	content.WriteString(msg.From.Address)
+	content.WriteString("\n")
+	content.WriteString(headerStyle.Render("Subject: "))
+	content.WriteString(msg.Subject)
+	content.WriteString("\n")
+	content.WriteString(headerStyle.Render("Date: "))
+	content.WriteString(msg.CreatedAt.Format("02/01/2006 15:04:05"))
+	content.WriteString("\n")
+	content.WriteString(separatorStyle.Render(strings.Repeat("─", 80)))
+	content.WriteString("\n\n")
 
 	if msg.Text != "" {
 		content.WriteString(msg.Text)
@@ -903,7 +997,9 @@ func (m *model) renderMessageDetail(msg *api.MessageDetail) string {
 		}
 		text := htmlToText(htmlBuilder.String())
 		content.WriteString(text)
-		content.WriteString("\n\n" + separatorStyle.Render(strings.Repeat("─", 80)) + "\n")
+		content.WriteString("\n\n")
+		content.WriteString(separatorStyle.Render(strings.Repeat("─", 80)))
+		content.WriteString("\n")
 		content.WriteString(descStyle.Render("Press 'o' to open HTML in browser"))
 	}
 
@@ -915,8 +1011,11 @@ func (m *model) renderMessageDetail(msg *api.MessageDetail) string {
 }
 
 func (m *model) writeAttachments(content *strings.Builder, attachments []api.Attachment) {
-	content.WriteString("\n\n" + separatorStyle.Render(strings.Repeat("─", 80)) + "\n")
-	content.WriteString(headerStyle.Render(fmt.Sprintf("📎 Attachments (%d)", len(attachments))) + "\n\n")
+	content.WriteString("\n\n")
+	content.WriteString(separatorStyle.Render(strings.Repeat("─", 80)))
+	content.WriteString("\n")
+	content.WriteString(headerStyle.Render(fmt.Sprintf("📎 Attachments (%d)", len(attachments))))
+	content.WriteString("\n\n")
 	for i, att := range attachments {
 		sizeKB := float64(att.Size) / 1024.0
 		_, _ = fmt.Fprintf(content, "%d. %s (%s, %.1f KB)\n",
@@ -925,13 +1024,15 @@ func (m *model) writeAttachments(content *strings.Builder, attachments []api.Att
 			descStyle.Render(att.ContentType),
 			sizeKB)
 	}
-	content.WriteString("\n" + descStyle.Render("Press '1-9' to download attachment, 'shift+a' to download all"))
+	content.WriteString("\n")
+	content.WriteString(descStyle.Render("Press '1-9' to download attachment, 'shift+a' to download all"))
 }
 
 func renderHelpScreen(_, _ int) string {
 	var s strings.Builder
 
-	s.WriteString(titleStyle.Render("Burnmail - Help") + "\n\n")
+	s.WriteString(titleStyle.Render("Burnmail - Help"))
+	s.WriteString("\n\n")
 
 	helpSections := []struct {
 		title string
@@ -975,9 +1076,17 @@ func renderHelpScreen(_, _ int) string {
 	}
 
 	for _, section := range helpSections {
-		s.WriteString(headerStyle.Render("▸ "+section.title) + "\n")
+		var hb strings.Builder
+		hb.WriteString("▸ ")
+		hb.WriteString(section.title)
+		s.WriteString(headerStyle.Render(hb.String()))
+		s.WriteString("\n")
 		for _, item := range section.items {
-			s.WriteString("  " + keyStyle.Render(fmt.Sprintf("%-10s", item[0])) + " " + descStyle.Render(item[1]) + "\n")
+			s.WriteString("  ")
+			s.WriteString(keyStyle.Render(fmt.Sprintf("%-10s", item[0])))
+			s.WriteString(" ")
+			s.WriteString(descStyle.Render(item[1]))
+			s.WriteString("\n")
 		}
 		s.WriteString("\n")
 	}
@@ -988,15 +1097,24 @@ func renderHelpScreen(_, _ int) string {
 }
 
 func renderConfirmDialog(description string) string {
-	var s strings.Builder
+	var boxContent strings.Builder
+	boxContent.WriteString(titleStyle.Render("⚠ Confirmation Required"))
+	boxContent.WriteString("\n\n")
+	var descb strings.Builder
+	descb.WriteString("Are you sure you want to ")
+	descb.WriteString(description)
+	descb.WriteString("?")
+	boxContent.WriteString(descStyle.Render(descb.String()))
+	boxContent.WriteString("\n\n")
+	boxContent.WriteString(keyStyle.Render("Y"))
+	boxContent.WriteString(descStyle.Render(" - Yes, proceed"))
+	boxContent.WriteString("\n")
+	boxContent.WriteString(keyStyle.Render("N"))
+	boxContent.WriteString(descStyle.Render(" - No, cancel"))
 
+	var s strings.Builder
 	s.WriteString("\n\n")
-	s.WriteString(confirmBoxStyle.Render(
-		titleStyle.Render("⚠ Confirmation Required") + "\n\n" +
-			descStyle.Render("Are you sure you want to "+description+"?") + "\n\n" +
-			keyStyle.Render("Y") + descStyle.Render(" - Yes, proceed") + "\n" +
-			keyStyle.Render("N") + descStyle.Render(" - No, cancel"),
-	))
+	s.WriteString(confirmBoxStyle.Render(boxContent.String()))
 
 	return s.String()
 }
@@ -1008,7 +1126,10 @@ func getDownloadsDir() string {
 	case "windows":
 		userProfile := os.Getenv("USERPROFILE")
 		if userProfile == "" {
-			userProfile = os.Getenv("HOMEDRIVE") + os.Getenv("HOMEPATH")
+			var upb strings.Builder
+			upb.WriteString(os.Getenv("HOMEDRIVE"))
+			upb.WriteString(os.Getenv("HOMEPATH"))
+			userProfile = upb.String()
 		}
 		downloadsDir = filepath.Join(userProfile, "Downloads")
 
