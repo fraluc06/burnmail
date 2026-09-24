@@ -11,23 +11,23 @@ import (
 	"burnmail/api"
 )
 
-func viewMessages(_ *cobra.Command, _ []string) {
-	accountData := loadAccountOrExit()
-	if accountData == nil {
-		return
+func viewMessages(_ *cobra.Command, _ []string) error {
+	accountData, err := loadAccount()
+	if err != nil {
+		return err
 	}
 
 	client := api.GetClient()
 	client.SetToken(accountData.Token)
 
-	messages, success := fetchMessages(client)
-	if !success {
-		return
+	messages, err := fetchMessages(client)
+	if err != nil {
+		return err
 	}
 
 	if len(messages) == 0 {
 		fmt.Printf("\n%s No messages yet. Your inbox is empty.\n", yellow("📭"))
-		return
+		return nil
 	}
 
 	templates := &promptui.SelectTemplates{
@@ -46,7 +46,8 @@ func viewMessages(_ *cobra.Command, _ []string) {
 
 	idx, _, err := prompt.Run()
 	if err != nil {
-		return
+		// User aborted the prompt (Ctrl+C / Esc): not a failure.
+		return nil
 	}
 
 	selectedMessage := messages[idx]
@@ -54,8 +55,7 @@ func viewMessages(_ *cobra.Command, _ []string) {
 	fmt.Println(cyan("\n📖 Loading message..."))
 	fullMessage, err := client.GetMessage(selectedMessage.ID)
 	if err != nil {
-		fmt.Printf("%s Failed to get message: %v\n", red("✗"), err)
-		return
+		return fmt.Errorf("failed to get message: %w", err)
 	}
 
 	fmt.Printf("\n%s\n", strings.Repeat("─", 60))
@@ -72,40 +72,35 @@ func viewMessages(_ *cobra.Command, _ []string) {
 	}
 
 	fmt.Println()
+	return nil
 }
 
-func viewMessagesTUI(_ *cobra.Command, _ []string) {
-	accountData := loadAccountOrExit()
-	if accountData == nil {
-		return
+func viewMessagesTUI(_ *cobra.Command, _ []string) error {
+	accountData, err := loadAccount()
+	if err != nil {
+		return err
 	}
 
 	client := api.GetClient()
 
 	if err := runTUI(accountData, client); err != nil {
-		fmt.Printf("%s TUI error: %v\n", red("✗"), err)
+		return fmt.Errorf("tui error: %w", err)
 	}
+	return nil
 }
 
-func fetchMessages(client *api.Client) ([]api.Message, bool) {
+func fetchMessages(client *api.Client) ([]api.Message, error) {
 	fmt.Println(cyan("📬 Fetching messages..."))
 
 	ctx, cancel := context.WithTimeout(context.Background(), requestTimeout)
 	defer cancel()
 
-	result, err := retryWithBackoff(ctx, func() (interface{}, error) {
+	messages, err := retryWithBackoff(ctx, func() ([]api.Message, error) {
 		return client.GetMessages()
 	})
 	if err != nil {
-		fmt.Printf("%s Failed to get messages: %v\n", red("✗"), err)
-		return nil, false
+		return nil, fmt.Errorf("failed to get messages: %w", err)
 	}
 
-	messages := result.([]api.Message)
-
-	if len(messages) == 0 {
-		return messages, true
-	}
-
-	return messages, true
+	return messages, nil
 }

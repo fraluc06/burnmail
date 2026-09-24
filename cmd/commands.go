@@ -28,10 +28,16 @@ var (
 	Version string
 
 	rootCmd = &cobra.Command{
-		Use:     "burnmail",
-		Short:   "🔥 Burn through temporary emails straight from your terminal",
-		Long:    `Burnmail is a CLI tool to quickly generate and manage disposable email addresses using mail.tm API.`,
-		Version: Version,
+		Use:   "burnmail",
+		Short: "🔥 Burn through temporary emails straight from your terminal",
+		Long:  `Burnmail is a CLI tool to quickly generate and manage disposable email addresses using mail.tm API.`,
+		// Version is assigned in Execute: the package variable is still empty
+		// when this literal is initialized, and cobra's --version flag is
+		// registered lazily from the field.
+		// Handlers print user-facing messages and return errors; Execute prints
+		// the returned error once, without the usage wall.
+		SilenceUsage:  true,
+		SilenceErrors: true,
 	}
 )
 
@@ -39,42 +45,48 @@ var generateCmd = &cobra.Command{
 	Use:     "g",
 	Aliases: []string{"generate"},
 	Short:   "Generate a new disposable email address",
-	Run:     generateEmail,
+	Args:    cobra.NoArgs,
+	RunE:    generateEmail,
 }
 
 var messagesCmd = &cobra.Command{
 	Use:     "m",
 	Aliases: []string{"messages", "inbox"},
 	Short:   "View inbox messages (interactive TUI)",
-	Run:     viewMessagesTUI,
+	Args:    cobra.NoArgs,
+	RunE:    viewMessagesTUI,
 }
 
 var messagesListCmd = &cobra.Command{
 	Use:     "list",
 	Aliases: []string{"ls"},
 	Short:   "List messages (classic view)",
-	Run:     viewMessages,
+	Args:    cobra.NoArgs,
+	RunE:    viewMessages,
 }
 
 var deleteCmd = &cobra.Command{
 	Use:     "d",
 	Aliases: []string{"delete"},
 	Short:   "Delete the current account",
-	Run:     deleteAccount,
+	Args:    cobra.NoArgs,
+	RunE:    deleteAccount,
 }
 
 var meCmd = &cobra.Command{
 	Use:   "me",
 	Short: "Show account details",
-	Run:   showAccount,
+	Args:  cobra.NoArgs,
+	RunE:  showAccount,
 }
 
 var versionCmd = &cobra.Command{
 	Use:     "v",
 	Aliases: []string{"version"},
 	Short:   "Show version information",
-	Run: func(_ *cobra.Command, _ []string) {
-		fmt.Printf("burnmail v%s\n", Version)
+	Args:    cobra.NoArgs,
+	Run: func(cmd *cobra.Command, _ []string) {
+		fmt.Fprintf(cmd.OutOrStdout(), "burnmail v%s\n", Version)
 	},
 }
 
@@ -104,17 +116,19 @@ Fish:
   $ burnmail completion fish > ~/.config/fish/completions/burnmail.fish
 `,
 	ValidArgs:             []string{"bash", "zsh", "fish"},
-	Args:                  cobra.ExactArgs(1),
+	Args:                  cobra.MatchAll(cobra.ExactArgs(1), cobra.OnlyValidArgs),
 	DisableFlagsInUseLine: true,
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
+		out := cmd.OutOrStdout()
 		switch args[0] {
 		case "bash":
-			_ = cmd.Root().GenBashCompletion(os.Stdout)
+			return cmd.Root().GenBashCompletion(out)
 		case "zsh":
-			_ = cmd.Root().GenZshCompletion(os.Stdout)
+			return cmd.Root().GenZshCompletion(out)
 		case "fish":
-			_ = cmd.Root().GenFishCompletion(os.Stdout, true)
+			return cmd.Root().GenFishCompletion(out, true)
 		}
+		return nil
 	},
 }
 
@@ -122,7 +136,8 @@ var exportCmd = &cobra.Command{
 	Use:     "export",
 	Aliases: []string{"exp"},
 	Short:   "Export all messages and account info to JSON file",
-	Run:     exportData,
+	Args:    cobra.NoArgs,
+	RunE:    exportData,
 }
 
 func init() {
@@ -137,7 +152,10 @@ func init() {
 }
 
 func Execute() {
+	rootCmd.Version = Version
+
 	if err := rootCmd.Execute(); err != nil {
+		fmt.Fprintf(os.Stderr, "%s %v\n", red("✗"), err)
 		os.Exit(1)
 	}
 }

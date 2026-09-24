@@ -4,19 +4,28 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
 
 	"burnmail/api"
-	"burnmail/storage"
 )
 
 type ExportData struct {
-	Account    *storage.AccountData `json:"account"`
-	Messages   []MessageExport      `json:"messages"`
-	ExportedAt string               `json:"exportedAt"`
+	Account    *exportAccount  `json:"account"`
+	Messages   []MessageExport `json:"messages"`
+	ExportedAt string          `json:"exportedAt"`
+}
+
+// exportAccount mirrors the account fields safe to write to disk. The stored
+// password and token are deliberately excluded so the export file can be
+// shared or archived without leaking credentials.
+type exportAccount struct {
+	Address   string `json:"address"`
+	AccountID string `json:"accountId"`
+	CreatedAt string `json:"createdAt"`
 }
 
 type MessageExport struct {
@@ -24,23 +33,23 @@ type MessageExport struct {
 	IsIncluded bool `json:"isIncluded"`
 }
 
-func exportData(_ *cobra.Command, _ []string) {
-	accountData := loadAccountOrExit()
-	if accountData == nil {
-		return
+func exportData(_ *cobra.Command, _ []string) error {
+	accountData, err := loadAccount()
+	if err != nil {
+		return err
 	}
 
 	client := api.GetClient()
 	client.SetToken(accountData.Token)
 
-	messages, success := fetchMessages(client)
-	if !success {
-		return
+	messages, err := fetchMessages(client)
+	if err != nil {
+		return err
 	}
 
 	if len(messages) == 0 {
 		fmt.Printf("\n%s No messages to export. Your inbox is empty.\n", yellow("📭"))
-		return
+		return nil
 	}
 
 	fmt.Printf("%s Found %d messages. Fetching details...\n", cyan("📖"), len(messages))
@@ -63,7 +72,11 @@ func exportData(_ *cobra.Command, _ []string) {
 	fmt.Println() // New line after progress
 
 	exportDataStruct := ExportData{
-		Account:    accountData,
+		Account: &exportAccount{
+			Address:   accountData.Address,
+			AccountID: accountData.AccountID,
+			CreatedAt: accountData.CreatedAt,
+		},
 		Messages:   exportedMessages,
 		ExportedAt: time.Now().Format("02/01/2006, 15:04:05"),
 	}
@@ -73,20 +86,19 @@ func exportData(_ *cobra.Command, _ []string) {
 
 	jsonData, err := json.MarshalIndent(exportDataStruct, "", "  ")
 	if err != nil {
-		fmt.Printf("%s Failed to marshal export data: %v\n", red("✗"), err)
-		return
+		return fmt.Errorf("failed to marshal export data: %w", err)
 	}
 
 	if err := os.WriteFile(filename, jsonData, 0600); err != nil {
-		fmt.Printf("%s Failed to write export file: %v\n", red("✗"), err)
-		return
+		return fmt.Errorf("failed to write export file: %w", err)
 	}
 
 	absPath, _ := os.Getwd()
-	fullPath := fmt.Sprintf("%s/%s", absPath, filename)
+	fullPath := filepath.Join(absPath, filename)
 
 	fmt.Printf("\n%s Export completed successfully!\n", green("✓"))
 	fmt.Printf("%s File: %s\n", cyan("💾"), filename)
 	fmt.Printf("%s Messages exported: %d\n", cyan("📧"), len(exportedMessages))
 	fmt.Printf("%s Full path: %s\n\n", cyan("📍"), fullPath)
+	return nil
 }

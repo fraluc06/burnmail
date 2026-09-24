@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"crypto/rand"
+	"errors"
 	"fmt"
 	"math"
 	"os"
@@ -15,27 +16,43 @@ import (
 	"burnmail/storage"
 )
 
-// loadAccountOrExit loads account data or exits with error message
-func loadAccountOrExit() *storage.AccountData {
+// loadAccount loads the stored account data, or returns an error if none exists.
+func loadAccount() (*storage.AccountData, error) {
 	accountData, err := storage.Load()
-	if err != nil || accountData == nil {
-		fmt.Printf("%s No account found. Generate one first with '%s'\n", red("✗"), yellow("burnmail g"))
-		return nil
+	if err != nil {
+		return nil, fmt.Errorf("failed to load account data: %w", err)
 	}
-	return accountData
+	if accountData == nil {
+		return nil, errors.New("no account found, generate one first with 'burnmail g'")
+	}
+	return accountData, nil
 }
 
 // generateRandomString generates a random string of specified length
 func generateRandomString(length int) string {
 	const charset = "abcdefghijklmnopqrstuvwxyz0123456789"
-	bytes := make([]byte, length)
-	if _, err := rand.Read(bytes); err != nil {
-		return ""
+	// Reject bytes at or above maxByte to avoid modulo bias: 256 is not a
+	// multiple of len(charset), so plain b%len(charset) favors the first
+	// 256%len(charset) characters.
+	const maxByte = 256 - (256 % len(charset))
+
+	result := make([]byte, 0, length)
+	buf := make([]byte, length)
+	for len(result) < length {
+		if _, err := rand.Read(buf); err != nil {
+			return ""
+		}
+		for _, b := range buf {
+			if int(b) >= maxByte {
+				continue
+			}
+			result = append(result, charset[int(b)%len(charset)])
+			if len(result) == length {
+				break
+			}
+		}
 	}
-	for i, b := range bytes {
-		bytes[i] = charset[b%byte(len(charset))]
-	}
-	return string(bytes)
+	return string(result)
 }
 
 // openInBrowser opens HTML content in the default browser
@@ -82,11 +99,12 @@ func openInBrowser(message *api.MessageDetail) {
 }
 
 // retryWithBackoff retries a function with exponential backoff
-func retryWithBackoff(ctx context.Context, fn func() (any, error)) (any, error) {
+func retryWithBackoff[T any](ctx context.Context, fn func() (T, error)) (T, error) {
+	var zero T
 	for attempt := 0; attempt < retryMaxAttempts; attempt++ {
 		select {
 		case <-ctx.Done():
-			return nil, ctx.Err()
+			return zero, ctx.Err()
 		default:
 		}
 
@@ -96,7 +114,7 @@ func retryWithBackoff(ctx context.Context, fn func() (any, error)) (any, error) 
 		}
 
 		if attempt == retryMaxAttempts-1 {
-			return nil, err
+			return zero, err
 		}
 
 		if strings.Contains(err.Error(), "429") || strings.Contains(err.Error(), "rate limit") {
@@ -105,12 +123,12 @@ func retryWithBackoff(ctx context.Context, fn func() (any, error)) (any, error) 
 			select {
 			case <-time.After(delay):
 			case <-ctx.Done():
-				return nil, ctx.Err()
+				return zero, ctx.Err()
 			}
 		} else {
-			return nil, err
+			return zero, err
 		}
 	}
 
-	return nil, fmt.Errorf("max retries exceeded")
+	return zero, errors.New("max retries exceeded")
 }

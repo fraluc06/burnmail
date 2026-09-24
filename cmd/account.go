@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -12,13 +13,13 @@ import (
 	"burnmail/storage"
 )
 
-func generateEmail(_ *cobra.Command, _ []string) {
+func generateEmail(_ *cobra.Command, _ []string) error {
 	if storage.Exists() {
 		existingAccount, _ := storage.Load()
 		if existingAccount != nil {
 			fmt.Printf("%s Account already exists: %s\n", yellow("⚠"), cyan(existingAccount.Address))
 			fmt.Printf("Use '%s' to delete it first.\n", yellow("burnmail d"))
-			return
+			return nil
 		}
 	}
 
@@ -29,22 +30,19 @@ func generateEmail(_ *cobra.Command, _ []string) {
 
 	client := api.GetClient()
 
-	domains, err := retryWithBackoff(ctx, func() (interface{}, error) {
+	domains, err := retryWithBackoff(ctx, func() ([]api.Domain, error) {
 		return client.GetDomains()
 	})
 	if err != nil {
-		fmt.Printf("%s Failed to get domains: %v\n", red("✗"), err)
-		return
+		return fmt.Errorf("failed to get domains: %w", err)
 	}
 
-	domainList := domains.([]api.Domain)
-	if len(domainList) == 0 {
-		fmt.Printf("%s No domains available\n", red("✗"))
-		return
+	if len(domains) == 0 {
+		return errors.New("no domains available")
 	}
 
 	var selectedDomain string
-	for _, d := range domainList {
+	for _, d := range domains {
 		if d.IsActive {
 			selectedDomain = d.Domain
 			break
@@ -52,8 +50,7 @@ func generateEmail(_ *cobra.Command, _ []string) {
 	}
 
 	if selectedDomain == "" {
-		fmt.Printf("%s No active domains found\n", red("✗"))
-		return
+		return errors.New("no active domains found")
 	}
 
 	username := generateRandomString(8)
@@ -62,33 +59,30 @@ func generateEmail(_ *cobra.Command, _ []string) {
 
 	fmt.Println(cyan("📧 Creating email address..."))
 
-	account, err := retryWithBackoff(ctx, func() (interface{}, error) {
+	account, err := retryWithBackoff(ctx, func() (*api.Account, error) {
 		return client.CreateAccount(address, password)
 	})
 	if err != nil {
-		fmt.Printf("%s Failed to create account: %v\n", red("✗"), err)
-		return
+		return fmt.Errorf("failed to create account: %w", err)
 	}
 
-	token, err := retryWithBackoff(ctx, func() (interface{}, error) {
+	token, err := retryWithBackoff(ctx, func() (string, error) {
 		return client.Login(address, password)
 	})
 	if err != nil {
-		fmt.Printf("%s Failed to login: %v\n", red("✗"), err)
-		return
+		return fmt.Errorf("failed to login: %w", err)
 	}
 
 	accountData := &storage.AccountData{
 		Address:   address,
 		Password:  password,
-		Token:     token.(string),
-		AccountID: account.(*api.Account).ID,
+		Token:     token,
+		AccountID: account.ID,
 		CreatedAt: time.Now().Format("02/01/2006, 15:04:05"),
 	}
 
 	if err := storage.Save(accountData); err != nil {
-		fmt.Printf("%s Failed to save account: %v\n", red("✗"), err)
-		return
+		return fmt.Errorf("failed to save account: %w", err)
 	}
 
 	if err := clipboard.WriteAll(address); err == nil {
@@ -99,12 +93,13 @@ func generateEmail(_ *cobra.Command, _ []string) {
 	}
 
 	fmt.Printf("\n%s\n\n", green(address))
+	return nil
 }
 
-func deleteAccount(_ *cobra.Command, _ []string) {
-	accountData := loadAccountOrExit()
-	if accountData == nil {
-		return
+func deleteAccount(_ *cobra.Command, _ []string) error {
+	accountData, err := loadAccount()
+	if err != nil {
+		return err
 	}
 
 	client := api.GetClient()
@@ -113,27 +108,28 @@ func deleteAccount(_ *cobra.Command, _ []string) {
 	ctx, cancel := context.WithTimeout(context.Background(), requestTimeout)
 	defer cancel()
 
-	_, deleteErr := retryWithBackoff(ctx, func() (interface{}, error) {
-		return nil, client.DeleteAccount(accountData.AccountID)
+	_, deleteErr := retryWithBackoff(ctx, func() (struct{}, error) {
+		return struct{}{}, client.DeleteAccount(accountData.AccountID)
 	})
 	if deleteErr != nil {
 		fmt.Printf("%s Failed to delete account from server: %v\n", yellow("⚠"), deleteErr)
 	}
 
 	if err := storage.Delete(); err != nil {
-		fmt.Printf("%s Failed to delete local data: %v\n", red("✗"), err)
-		return
+		return fmt.Errorf("failed to delete local data: %w", err)
 	}
 
 	fmt.Printf("%s Account deleted successfully\n", green("✓"))
+	return nil
 }
 
-func showAccount(_ *cobra.Command, _ []string) {
-	accountData := loadAccountOrExit()
-	if accountData == nil {
-		return
+func showAccount(_ *cobra.Command, _ []string) error {
+	accountData, err := loadAccount()
+	if err != nil {
+		return err
 	}
 
 	fmt.Printf("\n%s: %s\n", cyan("Email"), accountData.Address)
 	fmt.Printf("%s: %s\n\n", cyan("Created At"), accountData.CreatedAt)
+	return nil
 }
