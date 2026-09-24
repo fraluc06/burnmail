@@ -86,7 +86,9 @@ var versionCmd = &cobra.Command{
 	Short:   "Show version information",
 	Args:    cobra.NoArgs,
 	Run: func(cmd *cobra.Command, _ []string) {
-		fmt.Fprintf(cmd.OutOrStdout(), "burnmail v%s\n", Version)
+		// cmd.Printf writes to OutOrStdout() (capturable in tests) and
+		// swallows write errors internally, satisfying errcheck.
+		cmd.Printf("burnmail v%s\n", Version)
 	},
 }
 
