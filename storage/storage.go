@@ -4,6 +4,8 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sync"
@@ -44,7 +46,7 @@ func getConfigPath() (string, error) {
 
 func getOrCreatePassword() (string, error) {
 	password, err := keyring.Get(keyringService, keyringUser)
-	if err == keyring.ErrNotFound {
+	if errors.Is(err, keyring.ErrNotFound) {
 		randomBytes := make([]byte, 32)
 		if _, err := rand.Read(randomBytes); err != nil {
 			return "", err
@@ -73,6 +75,9 @@ func Save(data *AccountData) error {
 
 	password, err := getOrCreatePassword()
 	if err != nil {
+		// Keyring unavailable (e.g. headless session): fall back to plaintext
+		// so the tool keeps working, but make the downgrade visible.
+		fmt.Fprintf(os.Stderr, "warning: keyring unavailable (%v), storing account data unencrypted\n", err)
 		return os.WriteFile(path, jsonData, 0600)
 	}
 
