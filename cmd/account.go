@@ -9,8 +9,8 @@ import (
 	"github.com/atotto/clipboard"
 	"github.com/spf13/cobra"
 
-	"burnmail/api"
-	"burnmail/storage"
+	"burnmail/internal/api"
+	"burnmail/internal/storage"
 )
 
 func generateEmail(_ *cobra.Command, _ []string) error {
@@ -25,12 +25,12 @@ func generateEmail(_ *cobra.Command, _ []string) error {
 
 	fmt.Println(cyan("🔍 Fetching available domains..."))
 
-	ctx, cancel := context.WithTimeout(context.Background(), requestTimeout)
+	ctx, cancel := context.WithTimeout(context.Background(), api.RequestTimeout)
 	defer cancel()
 
 	client := api.GetClient()
 
-	domains, err := retryWithBackoff(ctx, func() ([]api.Domain, error) {
+	domains, err := api.RetryWithBackoff(ctx, func() ([]api.Domain, error) {
 		return client.GetDomains()
 	})
 	if err != nil {
@@ -59,14 +59,14 @@ func generateEmail(_ *cobra.Command, _ []string) error {
 
 	fmt.Println(cyan("📧 Creating email address..."))
 
-	account, err := retryWithBackoff(ctx, func() (*api.Account, error) {
+	account, err := api.RetryWithBackoff(ctx, func() (*api.Account, error) {
 		return client.CreateAccount(address, password)
 	})
 	if err != nil {
 		return fmt.Errorf("failed to create account: %w", err)
 	}
 
-	token, err := retryWithBackoff(ctx, func() (string, error) {
+	token, err := api.RetryWithBackoff(ctx, func() (string, error) {
 		return client.Login(address, password)
 	})
 	if err != nil {
@@ -105,10 +105,10 @@ func deleteAccount(_ *cobra.Command, _ []string) error {
 	client := api.GetClient()
 	client.SetToken(accountData.Token)
 
-	ctx, cancel := context.WithTimeout(context.Background(), requestTimeout)
+	ctx, cancel := context.WithTimeout(context.Background(), api.RequestTimeout)
 	defer cancel()
 
-	_, deleteErr := retryWithBackoff(ctx, func() (struct{}, error) {
+	_, deleteErr := api.RetryWithBackoff(ctx, func() (struct{}, error) {
 		return struct{}{}, client.DeleteAccount(accountData.AccountID)
 	})
 	if deleteErr != nil {

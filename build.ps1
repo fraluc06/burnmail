@@ -28,7 +28,7 @@ function Build-Windows {
     $env:GOOS = "windows"
     $env:GOARCH = $Arch
     $OutputName = "$BinaryName-windows-$Arch.exe"
-    go build -ldflags="-s -w -X main.Version=$Version" -o $OutputName
+    go build -ldflags="-s -w -X burnmail/internal/config.Version=$Version" -o $OutputName
     
     if ($LASTEXITCODE -eq 0) {
         Write-Success "Built: $OutputName"

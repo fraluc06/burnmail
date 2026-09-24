@@ -3,8 +3,7 @@
 # Binary name
 BINARY_NAME=burnmail
 VERSION=$(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
-BUILD_TIME=$(shell date -u '+%Y-%m-%d_%H:%M:%S')
-LDFLAGS=-s -w -X main.Version=$(VERSION) -X main.BuildTime=$(BUILD_TIME)
+LDFLAGS=-s -w -X burnmail/internal/config.Version=$(VERSION)
 
 # Build the project (optimized)
 build:

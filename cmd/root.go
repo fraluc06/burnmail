@@ -3,18 +3,11 @@ package cmd
 import (
 	"fmt"
 	"os"
-	"time"
 
 	"github.com/fatih/color"
 	"github.com/spf13/cobra"
-)
 
-const (
-	htmlFileCleanupDelay = 30 * time.Second
-	retryMaxAttempts     = 3
-	retryBaseDelay       = 1 * time.Second
-	retryMaxDelay        = 10 * time.Second
-	requestTimeout       = 30 * time.Second
+	"burnmail/internal/config"
 )
 
 var (
@@ -25,17 +18,15 @@ var (
 )
 
 var (
-	Version string
-
 	rootCmd = &cobra.Command{
 		Use:   "burnmail",
 		Short: "🔥 Burn through temporary emails straight from your terminal",
 		Long:  `Burnmail is a CLI tool to quickly generate and manage disposable email addresses using mail.tm API.`,
-		// Version is assigned in Execute: the package variable is still empty
-		// when this literal is initialized, and cobra's --version flag is
-		// registered lazily from the field.
+		// Cobra registers the --version flag from this field at execution
+		// time; config.Version is already stamped by the linker by then.
 		// Handlers print user-facing messages and return errors; Execute prints
 		// the returned error once, without the usage wall.
+		Version:       config.Version,
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}
@@ -88,7 +79,7 @@ var versionCmd = &cobra.Command{
 	Run: func(cmd *cobra.Command, _ []string) {
 		// cmd.Printf writes to OutOrStdout() (capturable in tests) and
 		// swallows write errors internally, satisfying errcheck.
-		cmd.Printf("burnmail v%s\n", Version)
+		cmd.Printf("burnmail v%s\n", config.Version)
 	},
 }
 
@@ -154,8 +145,6 @@ func init() {
 }
 
 func Execute() {
-	rootCmd.Version = Version
-
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Fprintf(os.Stderr, "%s %v\n", red("✗"), err)
 		os.Exit(1)

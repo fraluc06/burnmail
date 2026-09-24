@@ -10,7 +10,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"burnmail/api"
+	"burnmail/internal/api"
 )
 
 type ExportData struct {

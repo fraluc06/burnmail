@@ -5,15 +5,9 @@ import (
 	"crypto/rand"
 	"errors"
 	"fmt"
-	"math"
-	"os"
-	"os/exec"
-	"runtime"
-	"strings"
-	"time"
 
-	"burnmail/api"
-	"burnmail/storage"
+	"burnmail/internal/api"
+	"burnmail/internal/storage"
 )
 
 // loadAccount loads the stored account data, or returns an error if none exists.
@@ -55,80 +49,21 @@ func generateRandomString(length int) string {
 	return string(result)
 }
 
-// openInBrowser opens HTML content in the default browser
-func openInBrowser(message *api.MessageDetail) {
-	tmpFile, err := os.CreateTemp("", "burnmail-*.html")
+// fetchMessages prints progress and retries mail.tm rate-limit responses;
+// shared by the plain-stdout commands (export). The interactive frontends
+// live in internal/ui and fetch on their own.
+func fetchMessages(client *api.Client) ([]api.Message, error) {
+	fmt.Println(cyan("📬 Fetching messages..."))
+
+	ctx, cancel := context.WithTimeout(context.Background(), api.RequestTimeout)
+	defer cancel()
+
+	messages, err := api.RetryWithBackoff(ctx, func() ([]api.Message, error) {
+		return client.GetMessages()
+	})
 	if err != nil {
-		return
-	}
-	tmpFilePath := tmpFile.Name()
-
-	var htmlBuilder strings.Builder
-	for _, h := range message.HTML {
-		htmlBuilder.WriteString(h)
+		return nil, fmt.Errorf("failed to get messages: %w", err)
 	}
 
-	if _, err := tmpFile.WriteString(htmlBuilder.String()); err != nil {
-		_ = tmpFile.Close()
-		_ = os.Remove(tmpFilePath)
-		return
-	}
-	_ = tmpFile.Close()
-
-	go func() {
-		time.Sleep(htmlFileCleanupDelay)
-		_ = os.Remove(tmpFilePath)
-	}()
-
-	var execCmd *exec.Cmd
-	switch runtime.GOOS {
-	case "darwin":
-		execCmd = exec.Command("open", tmpFilePath)
-	case "linux":
-		execCmd = exec.Command("xdg-open", tmpFilePath)
-	case "windows":
-		execCmd = exec.Command("cmd", "/c", "start", tmpFilePath)
-	default:
-		_ = os.Remove(tmpFilePath)
-		return
-	}
-
-	if err := execCmd.Start(); err != nil {
-		_ = os.Remove(tmpFilePath)
-	}
-}
-
-// retryWithBackoff retries a function with exponential backoff
-func retryWithBackoff[T any](ctx context.Context, fn func() (T, error)) (T, error) {
-	var zero T
-	for attempt := 0; attempt < retryMaxAttempts; attempt++ {
-		select {
-		case <-ctx.Done():
-			return zero, ctx.Err()
-		default:
-		}
-
-		result, err := fn()
-		if err == nil {
-			return result, nil
-		}
-
-		if attempt == retryMaxAttempts-1 {
-			return zero, err
-		}
-
-		if strings.Contains(err.Error(), "429") || strings.Contains(err.Error(), "rate limit") {
-			delay := min(time.Duration(math.Pow(2, float64(attempt)))*retryBaseDelay, retryMaxDelay)
-
-			select {
-			case <-time.After(delay):
-			case <-ctx.Done():
-				return zero, ctx.Err()
-			}
-		} else {
-			return zero, err
-		}
-	}
-
-	return zero, errors.New("max retries exceeded")
+	return messages, nil
 }
