@@ -27,22 +27,22 @@ PLATFORM=${1:-current}
 case $PLATFORM in
   "current")
     echo -e "${BLUE}🏗️  Building for current platform...${NC}"
-    go build -ldflags="-s -w -X main.Version=${VERSION}" -o ${BINARY_NAME}
+    go build -ldflags="-s -w -X burnmail/internal/config.Version=${VERSION}" -o ${BINARY_NAME}
     echo -e "${GREEN}✓ Built: ${BINARY_NAME}${NC}"
     ;;
 
   "linux")
     echo -e "${BLUE}🐧 Building for Linux...${NC}"
-    GOOS=linux GOARCH=amd64 go build -ldflags="-s -w -X main.Version=${VERSION}" -o ${BINARY_NAME}-linux-amd64
-    GOOS=linux GOARCH=arm64 go build -ldflags="-s -w -X main.Version=${VERSION}" -o ${BINARY_NAME}-linux-arm64
+    GOOS=linux GOARCH=amd64 go build -ldflags="-s -w -X burnmail/internal/config.Version=${VERSION}" -o ${BINARY_NAME}-linux-amd64
+    GOOS=linux GOARCH=arm64 go build -ldflags="-s -w -X burnmail/internal/config.Version=${VERSION}" -o ${BINARY_NAME}-linux-arm64
     echo -e "${GREEN}✓ Built: ${BINARY_NAME}-linux-amd64${NC}"
     echo -e "${GREEN}✓ Built: ${BINARY_NAME}-linux-arm64${NC}"
     ;;
 
   "macos")
     echo -e "${BLUE}🍎 Building for macOS...${NC}"
-    GOOS=darwin GOARCH=amd64 go build -ldflags="-s -w -X main.Version=${VERSION}" -o ${BINARY_NAME}-macos-amd64
-    GOOS=darwin GOARCH=arm64 go build -ldflags="-s -w -X main.Version=${VERSION}" -o ${BINARY_NAME}-macos-arm64
+    GOOS=darwin GOARCH=amd64 go build -ldflags="-s -w -X burnmail/internal/config.Version=${VERSION}" -o ${BINARY_NAME}-macos-amd64
+    GOOS=darwin GOARCH=arm64 go build -ldflags="-s -w -X burnmail/internal/config.Version=${VERSION}" -o ${BINARY_NAME}-macos-arm64
     echo -e "${GREEN}✓ Built: ${BINARY_NAME}-macos-amd64${NC}"
     echo -e "${GREEN}✓ Built: ${BINARY_NAME}-macos-arm64${NC}"
     ;;
@@ -51,12 +51,12 @@ case $PLATFORM in
     echo -e "${BLUE}🌍 Building for Linux and macOS...${NC}"
 
     # Linux
-    GOOS=linux GOARCH=amd64 go build -ldflags="-s -w -X main.Version=${VERSION}" -o ${BINARY_NAME}-linux-amd64
-    GOOS=linux GOARCH=arm64 go build -ldflags="-s -w -X main.Version=${VERSION}" -o ${BINARY_NAME}-linux-arm64
+    GOOS=linux GOARCH=amd64 go build -ldflags="-s -w -X burnmail/internal/config.Version=${VERSION}" -o ${BINARY_NAME}-linux-amd64
+    GOOS=linux GOARCH=arm64 go build -ldflags="-s -w -X burnmail/internal/config.Version=${VERSION}" -o ${BINARY_NAME}-linux-arm64
 
     # macOS
-    GOOS=darwin GOARCH=amd64 go build -ldflags="-s -w -X main.Version=${VERSION}" -o ${BINARY_NAME}-macos-amd64
-    GOOS=darwin GOARCH=arm64 go build -ldflags="-s -w -X main.Version=${VERSION}" -o ${BINARY_NAME}-macos-arm64
+    GOOS=darwin GOARCH=amd64 go build -ldflags="-s -w -X burnmail/internal/config.Version=${VERSION}" -o ${BINARY_NAME}-macos-amd64
+    GOOS=darwin GOARCH=arm64 go build -ldflags="-s -w -X burnmail/internal/config.Version=${VERSION}" -o ${BINARY_NAME}-macos-arm64
 
     echo -e "${GREEN}✓ Built all binaries${NC}"
     ;;

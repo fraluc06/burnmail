@@ -14,7 +14,7 @@ RUN --mount=type=cache,target=/go/pkg/mod \
     CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH \
     go build \
       -trimpath \
-      -ldflags="-s -w -X main.Version=${VERSION}" \
+      -ldflags="-s -w -X burnmail/internal/config.Version=${VERSION}" \
       -o /out/burnmail .
 
 FROM alpine:3.24 AS runner

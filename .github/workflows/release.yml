@@ -46,7 +46,7 @@ jobs:
       - name: Build for all platforms
         run: |
           mkdir -p dist
-          LDFLAGS="-s -w -X main.Version=$VERSION"
+          LDFLAGS="-s -w -X burnmail/internal/config.Version=$VERSION"
           for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64; do
             goos="${target%/*}"; goarch="${target#*/}"
             ext=""; [ "$goos" = windows ] && ext=".exe"
@@ -54,11 +54,10 @@ jobs:
           done
           cd dist && sha256sum * > checksums.txt
 
-      # burnmail exposes the version via the `v` subcommand, not a --version flag.
       - name: Smoke test
         run: |
           chmod +x dist/burnmail-linux-amd64
-          OUTPUT=$(./dist/burnmail-linux-amd64 v 2>&1)
+          OUTPUT=$(./dist/burnmail-linux-amd64 --version 2>&1)
           echo "$OUTPUT"
           echo "$OUTPUT" | grep -qF "$VERSION"
 
