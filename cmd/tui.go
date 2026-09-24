@@ -18,8 +18,8 @@ import (
 	"charm.land/lipgloss/v2"
 	"github.com/atotto/clipboard"
 
-	"burnmail/api"
-	"burnmail/storage"
+	"burnmail/internal/api"
+	"burnmail/internal/storage"
 )
 
 type view int

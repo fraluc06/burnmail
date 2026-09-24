@@ -8,7 +8,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"burnmail/api"
+	"burnmail/internal/api"
 )
 
 func newTestModel() *model {

@@ -8,7 +8,7 @@ import (
 	"github.com/manifoldco/promptui"
 	"github.com/spf13/cobra"
 
-	"burnmail/api"
+	"burnmail/internal/api"
 )
 
 func viewMessages(_ *cobra.Command, _ []string) error {

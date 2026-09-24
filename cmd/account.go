@@ -9,8 +9,8 @@ import (
 	"github.com/atotto/clipboard"
 	"github.com/spf13/cobra"
 
-	"burnmail/api"
-	"burnmail/storage"
+	"burnmail/internal/api"
+	"burnmail/internal/storage"
 )
 
 func generateEmail(_ *cobra.Command, _ []string) error {

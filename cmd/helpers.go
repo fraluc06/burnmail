@@ -12,8 +12,8 @@ import (
 	"strings"
 	"time"
 
-	"burnmail/api"
-	"burnmail/storage"
+	"burnmail/internal/api"
+	"burnmail/internal/storage"
 )
 
 // loadAccount loads the stored account data, or returns an error if none exists.
