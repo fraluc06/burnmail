@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -55,13 +56,17 @@ func GetClient() *Client {
 func (c *Client) waitForRateLimit() {
 	<-c.rateLimiter
 
+	// Reserve the next request slot under the lock, then sleep outside it so
+	// concurrent SetToken/GetToken calls are not blocked by the delay.
 	c.mu.Lock()
-	since := time.Since(c.lastRequest)
-	if since < c.minDelay {
-		time.Sleep(c.minDelay - since)
+	next := c.lastRequest.Add(c.minDelay)
+	if now := time.Now(); next.Before(now) {
+		next = now
 	}
-	c.lastRequest = time.Now()
+	c.lastRequest = next
 	c.mu.Unlock()
+
+	time.Sleep(time.Until(next))
 
 	go func() {
 		time.Sleep(c.minDelay)
@@ -180,13 +185,13 @@ func (c *Client) GetDomains() ([]Domain, error) {
 	}
 
 	var domains []Domain
-	if err := json.Unmarshal(body, &domains); err == nil && len(domains) > 0 {
+	if err := json.Unmarshal(body, &domains); err == nil {
 		return domains, nil
 	}
 
 	var hydra hydraResponse
 	if err := json.Unmarshal(body, &hydra); err != nil {
-		return nil, fmt.Errorf("failed to parse domains response: %v", err)
+		return nil, fmt.Errorf("failed to parse domains response: %w", err)
 	}
 
 	if len(hydra.Member) > 0 {
@@ -196,7 +201,7 @@ func (c *Client) GetDomains() ([]Domain, error) {
 		return domains, nil
 	}
 
-	return nil, fmt.Errorf("unexpected API response format")
+	return nil, errors.New("unexpected API response format")
 }
 
 func (c *Client) CreateAccount(address, password string) (*Account, error) {
@@ -295,7 +300,7 @@ func (c *Client) GetMessages() ([]Message, error) {
 
 	var hydra hydraResponse
 	if err := json.Unmarshal(body, &hydra); err != nil {
-		return nil, fmt.Errorf("failed to parse messages response: %v", err)
+		return nil, fmt.Errorf("failed to parse messages response: %w", err)
 	}
 
 	if len(hydra.Member) > 0 {
@@ -387,6 +392,8 @@ func (c *Client) GetAccount(accountID string) (*Account, error) {
 }
 
 func (c *Client) DeleteMessage(id string) error {
+	c.waitForRateLimit()
+
 	req, err := http.NewRequest("DELETE", BaseURL+"/messages/"+id, nil)
 	if err != nil {
 		return err
@@ -408,6 +415,8 @@ func (c *Client) DeleteMessage(id string) error {
 }
 
 func (c *Client) MarkMessageAsRead(id string) error {
+	c.waitForRateLimit()
+
 	req, err := http.NewRequest("PATCH", BaseURL+"/messages/"+id, nil)
 	if err != nil {
 		return err
