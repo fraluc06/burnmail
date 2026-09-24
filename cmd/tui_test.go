@@ -4,6 +4,7 @@ import (
 	"errors"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -86,6 +87,46 @@ func TestQuitConfirmFlow(t *testing.T) {
 	m = updated.(*model)
 	if m.currentView != listView {
 		t.Fatalf("expected back to listView after n, got %v", m.currentView)
+	}
+}
+
+// Regression for the tick explosion: messagesLoadedMsg must not schedule an
+// extra tickCmd. The tick chain started in Init perpetuates itself via
+// tickMsg, so scheduling another on every load doubled the number of active
+// timers each refresh cycle, multiplying API requests.
+func TestMessagesLoadedDoesNotScheduleExtraTick(t *testing.T) {
+	m := newTestModel()
+	_, cmd := m.Update(messagesLoadedMsg(nil))
+	if cmd != nil {
+		t.Fatal("BUG: messagesLoadedMsg scheduled an extra tick cmd")
+	}
+}
+
+// truncate must not split multibyte runes when returning a byte slice.
+func TestTruncateMultibyte(t *testing.T) {
+	tests := []struct {
+		name string
+		s    string
+		max  int
+		want string
+	}{
+		{"short enough", "héllo", 10, "héllo"},
+		{"fits in runes", "日本", 5, "日本"},
+		{"max below 10 slices runes", "héllo", 2, "hé"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := truncate(tt.s, tt.max)
+			if got != tt.want {
+				t.Errorf("truncate(%q, %d) = %q, want %q", tt.s, tt.max, got, tt.want)
+			}
+		})
+	}
+
+	long := "日本語のテキストです。これは長い文章です。"
+	if got := truncate(long, 12); !utf8.ValidString(got) {
+		t.Errorf("truncate produced invalid UTF-8: %q", got)
 	}
 }
 

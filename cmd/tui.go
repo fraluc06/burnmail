@@ -75,7 +75,7 @@ type model struct {
 	selectedItems  map[int]bool
 	bulkMode       bool
 	confirmAction  string
-	confirmData    interface{}
+	confirmData    string
 	lastUpdate     time.Time
 	isDark         bool
 }
@@ -84,6 +84,10 @@ type messagesLoadedMsg []api.Message
 type messageDetailLoadedMsg *api.MessageDetail
 type messageDeletedMsg struct{}
 type bulkDeletedMsg struct{}
+type attachmentDownloadedMsg struct {
+	filename string
+	err      error
+}
 type errMsg error
 type tickMsg time.Time
 type retryLoadMsg struct{}
@@ -248,25 +252,14 @@ func deleteMessage(client *api.Client, id string) tea.Cmd {
 
 func bulkDeleteMessages(client *api.Client, ids []string) tea.Cmd {
 	return func() tea.Msg {
-		type result struct {
-			err error
-		}
-		results := make(chan result, len(ids))
-
+		// Sequential: one goroutine per id bypasses the client's rate
+		// limiter and aborting mid-loop left the remaining deletions
+		// running in the background, silently.
 		for _, id := range ids {
-			go func(msgID string) {
-				err := client.DeleteMessage(msgID)
-				results <- result{err: err}
-			}(id)
-		}
-
-		for range ids {
-			res := <-results
-			if res.err != nil {
-				return errMsg(res.err)
+			if err := client.DeleteMessage(id); err != nil {
+				return errMsg(err)
 			}
 		}
-
 		return bulkDeletedMsg{}
 	}
 }
@@ -308,7 +301,10 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.lastUpdate = time.Now()
 		saveCache(m.messages)
 		m.refreshTable()
-		return m, tickCmd()
+		// Do not schedule a tick here: the tick chain started in Init is
+		// self-perpetuating via tickMsg. Adding one per load would double the
+		// number of active timers on every refresh, hammering the API.
+		return m, nil
 
 	case messageDetailLoadedMsg:
 		m.selectedMsg = msg
@@ -361,6 +357,14 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case attachmentDownloadedMsg:
+		if msg.err != nil {
+			m.statusMessage = fmt.Sprintf("Download failed (%s): %v", msg.filename, msg.err)
+		} else {
+			m.statusMessage = fmt.Sprintf("Downloaded %s", msg.filename)
+		}
+		return m, nil
+
 	case tickMsg:
 		if m.autoRefresh && m.currentView == listView && !m.loading {
 			return m, tea.Batch(loadMessages(m.client), tickCmd())
@@ -399,7 +403,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case "n", "N", "esc", "q":
 				m.currentView = m.previousView
 				m.confirmAction = ""
-				m.confirmData = nil
+				m.confirmData = ""
 				return m, nil
 			}
 			return m, nil
@@ -533,17 +537,21 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.currentView == detailView && m.selectedMsg != nil && len(m.selectedMsg.Attachments) > 0 {
 				idx := int(msg.String()[0] - '1')
 				if idx < len(m.selectedMsg.Attachments) {
-					go downloadAttachment(m.client, m.selectedMsg.ID, m.selectedMsg.Attachments[idx])
-					m.statusMessage = fmt.Sprintf("Downloading %s...", m.selectedMsg.Attachments[idx].Filename)
+					att := m.selectedMsg.Attachments[idx]
+					m.statusMessage = fmt.Sprintf("Downloading %s...", att.Filename)
+					return m, downloadAttachmentCmd(m.client, m.selectedMsg.ID, att)
 				}
 			}
 
 		case "A":
 			if m.currentView == detailView && m.selectedMsg != nil && len(m.selectedMsg.Attachments) > 0 {
-				for _, att := range m.selectedMsg.Attachments {
-					go downloadAttachment(m.client, m.selectedMsg.ID, att)
+				atts := m.selectedMsg.Attachments
+				cmds := make([]tea.Cmd, 0, len(atts))
+				for _, att := range atts {
+					cmds = append(cmds, downloadAttachmentCmd(m.client, m.selectedMsg.ID, att))
 				}
-				m.statusMessage = fmt.Sprintf("Downloading %d attachments...", len(m.selectedMsg.Attachments))
+				m.statusMessage = fmt.Sprintf("Downloading %d attachments...", len(atts))
+				return m, tea.Batch(cmds...)
 			}
 
 		case "q", "Q":
@@ -684,7 +692,7 @@ func (m *model) View() tea.View {
 		case helpView:
 			s.WriteString(renderHelpScreen(m.width, m.height))
 		case confirmView:
-			s.WriteString(renderConfirmDialog(m.confirmData.(string)))
+			s.WriteString(renderConfirmDialog(m.confirmData))
 		default:
 			s.WriteString(baseStyle.Render(m.viewport.View()))
 			s.WriteString("\n")
@@ -737,7 +745,7 @@ func (m *model) updateColumnWidths(termWidth int) {
 		newCols = []table.Column{
 			{Title: "✓", Width: 2},
 			{Title: "From", Width: 15},
-			{Title: "Subject", Width: maxInt(20, termWidth-30)},
+			{Title: "Subject", Width: max(20, termWidth-30)},
 			{Title: "Date", Width: 10},
 		}
 	} else if termWidth < 120 {
@@ -745,7 +753,7 @@ func (m *model) updateColumnWidths(termWidth int) {
 			{Title: "✓", Width: 3},
 			{Title: "📎", Width: 3},
 			{Title: "From", Width: 20},
-			{Title: "Subject", Width: maxInt(25, termWidth-55)},
+			{Title: "Subject", Width: max(25, termWidth-55)},
 			{Title: "Preview", Width: 15},
 			{Title: "Date", Width: 12},
 		}
@@ -754,7 +762,7 @@ func (m *model) updateColumnWidths(termWidth int) {
 			{Title: "✓", Width: 3},
 			{Title: "📎", Width: 3},
 			{Title: "From", Width: 25},
-			{Title: "Subject", Width: maxInt(30, termWidth-85)},
+			{Title: "Subject", Width: max(30, termWidth-85)},
 			{Title: "Preview", Width: 25},
 			{Title: "Date", Width: 14},
 		}
@@ -817,13 +825,6 @@ func (m *model) updateTableRows() {
 	m.table.SetRows(rows)
 }
 
-func maxInt(a, b int) int {
-	if a > b {
-		return a
-	}
-	return b
-}
-
 func (m *model) sortMessages() {
 	switch m.sortBy {
 	case sortByDate:
@@ -858,12 +859,13 @@ func (m *model) refreshTable() {
 }
 
 func truncate(s string, max int) string {
-	if len(s) <= max {
+	runes := []rune(s)
+	if len(runes) <= max {
 		return s
 	}
 
 	if max < 10 {
-		return s[:max]
+		return string(runes[:max])
 	}
 
 	const ellipsis = "..."
@@ -873,7 +875,8 @@ func truncate(s string, max int) string {
 	length := 0
 
 	for _, word := range words {
-		if length+len(word)+1 > max-len(ellipsis) {
+		w := len([]rune(word))
+		if length+w+1 > max-len(ellipsis) {
 			break
 		}
 		if length > 0 {
@@ -881,14 +884,11 @@ func truncate(s string, max int) string {
 			length++
 		}
 		result.WriteString(word)
-		length += len(word)
+		length += w
 	}
 
 	if result.Len() == 0 {
-		var eb strings.Builder
-		eb.WriteString(s[:max-len(ellipsis)])
-		eb.WriteString(ellipsis)
-		return eb.String()
+		return string(runes[:max-len(ellipsis)]) + ellipsis
 	}
 
 	result.WriteString(ellipsis)
@@ -1153,17 +1153,39 @@ func getDownloadsDir() string {
 	return downloadsDir
 }
 
-func downloadAttachment(client *api.Client, messageID string, att api.Attachment) {
+// downloadAttachmentCmd runs downloadAttachment off the UI goroutine and
+// reports the result back through the message loop, so failures surface in
+// the status line instead of being silently dropped.
+func downloadAttachmentCmd(client *api.Client, messageID string, att api.Attachment) tea.Cmd {
+	return func() tea.Msg {
+		err := downloadAttachment(client, messageID, att)
+		return attachmentDownloadedMsg{filename: att.Filename, err: err}
+	}
+}
+
+// safeFilename keeps a remote-provided attachment name inside the downloads
+// directory: only its base name is trusted, never a path.
+func safeFilename(name string) string {
+	base := filepath.Base(name)
+	if base == "." || base == ".." {
+		return "attachment"
+	}
+	return base
+}
+
+func downloadAttachment(client *api.Client, messageID string, att api.Attachment) error {
 	data, err := client.DownloadAttachment(messageID, att.ID)
 	if err != nil {
-		return
+		return err
 	}
 
+	filename := safeFilename(att.Filename)
+
 	downloadsDir := getDownloadsDir()
-	filePath := filepath.Join(downloadsDir, att.Filename)
+	filePath := filepath.Join(downloadsDir, filename)
 	counter := 1
-	baseName := strings.TrimSuffix(att.Filename, filepath.Ext(att.Filename))
-	ext := filepath.Ext(att.Filename)
+	baseName := strings.TrimSuffix(filename, filepath.Ext(filename))
+	ext := filepath.Ext(filename)
 
 	for {
 		if _, err := os.Stat(filePath); os.IsNotExist(err) {
@@ -1173,7 +1195,7 @@ func downloadAttachment(client *api.Client, messageID string, att api.Attachment
 		counter++
 	}
 
-	_ = os.WriteFile(filePath, data, 0644)
+	return os.WriteFile(filePath, data, 0644)
 }
 
 func (m *model) applyStyles() {
