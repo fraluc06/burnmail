@@ -3,20 +3,11 @@ package cmd
 import (
 	"fmt"
 	"os"
-	"time"
 
 	"github.com/fatih/color"
 	"github.com/spf13/cobra"
 
 	"burnmail/internal/config"
-)
-
-const (
-	htmlFileCleanupDelay = 30 * time.Second
-	retryMaxAttempts     = 3
-	retryBaseDelay       = 1 * time.Second
-	retryMaxDelay        = 10 * time.Second
-	requestTimeout       = 30 * time.Second
 )
 
 var (
