@@ -6,20 +6,23 @@
 
 ```bash
 # Installation
-go mod download        # or make deps (download + tidy + verify)
+go mod download
+go mod tidy && go mod verify
 
 # Development
-go run main.go         # or make run; the TUI needs a real terminal
+go run main.go         # the TUI needs a real terminal
 
-# Build
-make build             # optimized: -ldflags "-s -w", -trimpath, version from git tag
-make build-dev         # with debug symbols
-make build-all         # cross-compile 5 platforms (linux/darwin amd64+arm64, windows amd64)
+# Build (optimized: -s -w, -trimpath, version from git tag)
+go build -trimpath -ldflags "-s -w -X burnmail/internal/config.Version=$(git describe --tags --always --dirty)" -o burnmail .
+go build -o burnmail . # development build, with debug symbols
+
+# Cross-compile 5 platforms (linux/darwin amd64+arm64, windows amd64): set GOOS/GOARCH
+GOOS=linux GOARCH=arm64 go build -trimpath -ldflags "-s -w -X burnmail/internal/config.Version=$(git describe --tags --always --dirty)" -o burnmail-linux-arm64 .
 
 # Tests
-make test              # go test -v -race -cover ./...
+go test -v -race -cover ./...
 go test ./cmd          # single package
-make bench             # go test -bench=. -benchmem ./...
+go test -bench=. -benchmem ./...
 
 # Lint (CI gates on all three)
 go vet ./...
@@ -80,7 +83,7 @@ burnmail/
 - Error strings lowercase, no trailing punctuation; wrap with `%w`; check every error (errcheck in CI — its default exclusions cover `fmt.Printf` and writes to `os.Stdout`/`os.Stderr`, **not** `fmt.Fprintf` to arbitrary `io.Writer`)
 - Command output goes through `cmd.OutOrStdout()`/`cmd.Printf`; declare `Args:` validators (`cobra.NoArgs`, `MatchAll(ExactArgs(1), OnlyValidArgs)`) instead of len() checks
 - Use `errors.Is`/`errors.As` for sentinel inspection, never `==`
-- Keep `main.go` minimal; version is ldflags-injected into `internal/config.Version` (`-X burnmail/internal/config.Version=`), source of truth is the git tag — the exact same string lives in `Makefile`, `Dockerfile`, `release.yml` and the Homebrew formula, so any change must update all of them atomically
+- Keep `main.go` minimal; version is ldflags-injected into `internal/config.Version` (`-X burnmail/internal/config.Version=`), source of truth is the git tag — the exact same string lives in `Dockerfile`, `release.yml` and the Homebrew formula, so any change must update all of them atomically
 
 ### Naming Conventions
 - Exported: PascalCase (`GetDomains`, `MessageDetail`); unexported: camelCase (`retryMaxAttempts`, `loadAccount`)

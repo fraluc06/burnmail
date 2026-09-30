@@ -90,13 +90,13 @@ $ burnmail m ls
 
 ```bash
 # Build
-make build
+go build -trimpath -ldflags "-s -w -X burnmail/internal/config.Version=$(git describe --tags --always --dirty)" -o burnmail .
 
 # Test
-make test
+go test -v -race ./...
 
-# Cross-compile for all platforms
-make build-all
+# Cross-compile: set GOOS/GOARCH per target
+GOOS=windows GOARCH=amd64 go build -trimpath -ldflags "-s -w" -o burnmail-windows-amd64.exe .
 ```
 
 ## License
