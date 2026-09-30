@@ -12,8 +12,6 @@ droast.toml
 Dockerfile
 docker-compose.yml
 Makefile
-build.sh
-build.ps1
 completions/
 
 # Local build artifacts

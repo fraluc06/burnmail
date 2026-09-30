@@ -80,7 +80,7 @@ burnmail/
 - Error strings lowercase, no trailing punctuation; wrap with `%w`; check every error (errcheck in CI — its default exclusions cover `fmt.Printf` and writes to `os.Stdout`/`os.Stderr`, **not** `fmt.Fprintf` to arbitrary `io.Writer`)
 - Command output goes through `cmd.OutOrStdout()`/`cmd.Printf`; declare `Args:` validators (`cobra.NoArgs`, `MatchAll(ExactArgs(1), OnlyValidArgs)`) instead of len() checks
 - Use `errors.Is`/`errors.As` for sentinel inspection, never `==`
-- Keep `main.go` minimal; version is ldflags-injected into `internal/config.Version` (`-X burnmail/internal/config.Version=`), source of truth is the git tag — the exact same string lives in `Makefile`, `Dockerfile`, `build.sh`, `build.ps1`, `release.yml` and the Homebrew formula, so any change must update all of them atomically
+- Keep `main.go` minimal; version is ldflags-injected into `internal/config.Version` (`-X burnmail/internal/config.Version=`), source of truth is the git tag — the exact same string lives in `Makefile`, `Dockerfile`, `release.yml` and the Homebrew formula, so any change must update all of them atomically
 
 ### Naming Conventions
 - Exported: PascalCase (`GetDomains`, `MessageDetail`); unexported: camelCase (`retryMaxAttempts`, `loadAccount`)

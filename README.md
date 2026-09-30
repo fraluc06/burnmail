@@ -96,8 +96,7 @@ make build
 make test
 
 # Cross-compile for all platforms
-./build.sh all  # Linux/macOS
-.\build.ps1 all # Windows
+make build-all
 ```
 
 ## License
